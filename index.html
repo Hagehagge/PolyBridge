@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>Unity WebGL Player</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+      background: #231F20;
+    }
+    #unity-container { width: 100%; height: 100%; position: absolute; }
+    #unity-canvas { width: 100%; height: 100%; background: #231F20; }
+    #unity-loading-bar { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; }
+    #unity-progress-bar-empty { width: 141px; height: 18px; margin-top: 10px; background: #333; }
+    #unity-progress-bar-full { width: 0%; height: 100%; background: #fff; }
+  </style>
+
+  <script src="https://sdk.crazygames.com/crazygames-sdk-v2.js"></script>
+
+  <script>
+    var TARGET_LANG = "en";
+
+    // ログ出力の無効化
+    window.LogStyledMessage = function() {};
+    function LogStyledMessage() {}
+
+    // 無効な外部通信（cloudfront.net）の自動ブロック
+    (function() {
+      var origXHR = window.XMLHttpRequest;
+      window.XMLHttpRequest = function() {
+        var xhr = new origXHR();
+        var origOpen = xhr.open;
+        xhr.open = function(method, url) {
+          if (typeof url === 'string' && url.indexOf('cloudfront.net') !== -1) {
+            url = 'data:application/json,{}';
+          }
+          return origOpen.apply(this, arguments);
+        };
+        return xhr;
+      };
+    })();
+
+    // PluginYG / Yandex Games モック
+    var mockDataObj = {
+      player: { id: "12345", name: "Player", photo: "" },
+      saves: {},
+      settings: { lang: TARGET_LANG },
+      auth: true
+    };
+    var jsonMock = JSON.stringify(mockDataObj);
+
+    window.ysdk = window.ysdk || {
+      environment: { i18n: { lang: TARGET_LANG, tld: "com" } },
+      i18n: { lang: TARGET_LANG, tld: "com" },
+      lang: TARGET_LANG,
+      adv: {
+        showFullscreenAdv: function(opts) { if(opts && opts.callbacks && opts.callbacks.onClose) opts.callbacks.onClose(true); },
+        showRewardedVideo: function(opts) { if(opts && opts.callbacks && opts.callbacks.onRewarded) opts.callbacks.onRewarded(); if(opts && opts.callbacks && opts.callbacks.onClose) opts.callbacks.onClose(); }
+      },
+      features: { LoadingAPI: { ready: function() {} } },
+      getPlayer: function() {
+        return Promise.resolve({
+          getName: function() { return "Player"; },
+          getPhoto: function() { return ""; },
+          getUniqueID: function() { return "12345"; },
+          getData: function() { return Promise.resolve(mockDataObj); },
+          setData: function() { return Promise.resolve(); }
+        });
+      },
+      getStorage: function() {
+        return Promise.resolve({
+          getItem: function() { return Promise.resolve(jsonMock); },
+          setItem: function() { return Promise.resolve(); }
+        });
+      }
+    };
+
+    var environmentData = JSON.stringify({
+      language: TARGET_LANG,
+      lang: TARGET_LANG,
+      i18n: { lang: TARGET_LANG, tld: "com" },
+      env: { lang: TARGET_LANG },
+      domain: "com"
+    });
+
+    window.playerData = jsonMock;
+    window.cloudSaves = jsonMock;
+    window.paymentsData = jsonMock;
+    window.environmentData = environmentData;
+    window.initGame = true;
+    window.isPausedGame = false;
+
+    function InitGame() {}
+    function InterAdvShow() {}
+    function RewardVideoShow(id) {}
+    function CheckAd() {}
+    function ReviewShow() {}
+    function PromptShow() {}
+    function StickyAdActivity(show) {}
+    function GetLang() { return TARGET_LANG; }
+    function RequestLanguage() { return TARGET_LANG; }
+
+    window.InitGame = InitGame;
+    window.InterAdvShow = InterAdvShow;
+    window.RewardVideoShow = RewardVideoShow;
+    window.CheckAd = CheckAd;
+    window.ReviewShow = ReviewShow;
+    window.PromptShow = PromptShow;
+    window.StickyAdActivity = StickyAdActivity;
+    window.GetLang = GetLang;
+    window.RequestLanguage = RequestLanguage;
+
+    function RequestingEnvironmentData() { return Promise.resolve(environmentData); }
+    function RequestingPlayerData() { return Promise.resolve(jsonMock); }
+    function YG2Instance(method, val) {}
+    function sendYG(method, val) {}
+
+    window.RequestingEnvironmentData = RequestingEnvironmentData;
+    window.RequestingPlayerData = RequestingPlayerData;
+    window.YG2Instance = YG2Instance;
+    window.sendYG = sendYG;
+
+    // CrazyGames SDK モック
+    window.CrazyGames = window.CrazyGames || {};
+    window.CrazyGames.SDK = window.CrazyGames.SDK || {
+      game: {
+        loading: { start: function() {}, stop: function() {} },
+        gameReady: function() {},
+        happytime: function() {}
+      },
+      user: { isUserAccountAvailable: false },
+      ad: { requestAd: function(type, callbacks) { if (callbacks && callbacks.adFinished) callbacks.adFinished(); } }
+    };
+  </script>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="unity-loading-bar">
+      <div id="unity-progress-bar-empty">
+        <div id="unity-progress-bar-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var container = document.querySelector("#unity-container");
+    var canvas = document.querySelector("#unity-canvas");
+    var loadingBar = document.querySelector("#unity-loading-bar");
+    var progressBarFull = document.querySelector("#unity-progress-bar-full");
+
+    // 【軽量化ポイント1】 内部ピクセル比率を0.65に設定（ピクセル描画負荷を約55%カット）
+    var dpi = 0.8; 
+
+    var buildUrl = ".";
+    var loaderUrl = buildUrl + "/buildbug.loader.js";
+    var config = {
+      dataUrl: buildUrl + "/buildbug.data.unityweb",
+      frameworkUrl: buildUrl + "/buildbug.framework.js.unityweb",
+      codeUrl: buildUrl + "/buildbug.wasm.unityweb",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "DefaultCompany",
+      productName: "MyGame",
+      productVersion: "1.0",
+      devicePixelRatio: dpi,
+      // 【軽量化ポイント2】 描画バッファとアンチエイリアスの完全OFF設定
+      webglContextAttributes: {
+        antialias: false,
+        powerPreference: "high-performance",
+        desynchronized: true,
+        preserveDrawingBuffer: false,
+        depth: true,
+        stencil: false,
+        failIfMajorPerformanceCaveat: false
+      }
+    };
+
+    loadingBar.style.display = "block";
+
+    var script = document.querySelector("script[src='" + loaderUrl + "']") || document.createElement("script");
+    script.src = loaderUrl;
+    script.onload = () => {
+      createUnityInstance(canvas, config, (progress) => {
+        progressBarFull.style.width = 100 * progress + "%";
+      }).then((unityInstance) => {
+        window.unityInstance = unityInstance;
+        loadingBar.style.display = "none";
+      }).catch((message) => {
+        alert(message);
+      });
+    };
+    if (!script.parentNode) document.body.appendChild(script);
+  </script>
+</body>
+</html>
